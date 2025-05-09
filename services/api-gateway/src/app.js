@@ -19,6 +19,7 @@ if (!awsRegion) {
 const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || "http://localhost:3001";
 const NOTES_SERVICE_URL = process.env.NOTES_SERVICE_URL || "http://localhost:3002";
 const FILES_SERVICE_URL = process.env.FILES_SERVICE_URL || "http://localhost:3003";
+const NOTIFICATIONS_SERVICE_URL = process.env.NOTIFICATIONS_SERVICE_URL || "http://localhost:3004";
 
 // --- Klient AWS Cognito ---
 // W Fargate uprawnienia powinny pochodzić z IAM Role
@@ -160,6 +161,16 @@ app.use(
   })
 );
 
+app.use(
+  "/notifications",
+  createProxyMiddleware({
+    // Dodano middleware
+    ...commonProxyOptions,
+    target: NOTIFICATIONS_SERVICE_URL,
+    pathRewrite: { "^/notifications": "" },
+  })
+);
+
 // Health Check dla samego Gatewaya
 app.get("/health", (req, res) => {
   res.status(200).send("API Gateway OK");
@@ -178,4 +189,5 @@ app.listen(port, () => {
   console.log(` - Proxying /auth -> ${AUTH_SERVICE_URL}`);
   console.log(` - Proxying /notes -> ${NOTES_SERVICE_URL} (Auth Required)`);
   console.log(` - Proxying /files -> ${FILES_SERVICE_URL} (Auth Required)`);
+  console.log(` - Proxying /notifications -> ${NOTIFICATIONS_SERVICE_URL} (Auth Required)`);
 });

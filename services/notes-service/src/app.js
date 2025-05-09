@@ -1,11 +1,13 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import axios from "axios";
 import { Sequelize, DataTypes } from "sequelize";
 
 dotenv.config(); // Aby załadować DB_URL z .env dla lokalnego rozwoju
 
 const dbUrl = process.env.DB_URL;
+const notificationsServiceUrl = process.env.NOTIFICATIONS_SERVICE_URL;
 
 if (!dbUrl) {
   console.error("FATAL ERROR: DB_URL environment variable is not set.");
@@ -126,6 +128,7 @@ app.get("/", async (req, res) => {
 // POST / : Utwórz nową notatkę dla zalogowanego użytkownika
 app.post("/", async (req, res) => {
   const { title, content } = req.body;
+  const userId = req.userId;
 
   if (!title || !content) {
     return res.status(400).json({ message: "Tytuł i treść notatki są wymagane" });
@@ -135,9 +138,40 @@ app.post("/", async (req, res) => {
     const newNote = await Note.create({
       title,
       content,
-      userId: req.userId, // Przypisujemy notatkę do użytkownika z nagłówka
+      userId: userId, // Przypisujemy notatkę do użytkownika z nagłówka
     });
-    console.log(`[NotesService] Note created with ID: ${newNote.id} for User ID: ${req.userId}`);
+    console.log(`[NotesService] Note created with ID: ${newNote.id} for User ID: ${userId}`);
+
+    if (notificationsServiceUrl) {
+      try {
+        const notificationPayload = {
+          recipientUserId: userId, // Użytkownik, który stworzył notatkę
+          subject: `Nowa notatka: ${newNote.title.substring(0, 50)}${newNote.title.length > 50 ? "..." : ""}`,
+          message: `Utworzyłeś nową notatkę o tytule "${newNote.title}".\nTreść: ${newNote.content.substring(0, 100)}${
+            newNote.content.length > 100 ? "..." : ""
+          }`,
+        };
+
+        console.log(`[NotesService] Attempting to send notification to ${notificationsServiceUrl}/send for User ID: ${userId}`);
+        // Używamy await, ale nie blokujemy odpowiedzi dla klienta, jeśli notyfikacja się nie powiedzie
+        // W produkcji można by to zrobić asynchronicznie "fire and forget" lub z lepszą obsługą błędów
+        axios
+          .post(`${notificationsServiceUrl}/send`, notificationPayload)
+          .then((response) => {
+            console.log(`[NotesService] Notification sent successfully for note ${newNote.id}:`, response.data);
+          })
+          .catch((error) => {
+            // Logujemy błąd, ale nie powodujemy, że cała operacja tworzenia notatki się nie powiedzie
+            console.error(`[NotesService] Error sending notification for note ${newNote.id}:`, error.response ? error.response.data : error.message);
+          });
+      } catch (notificationError) {
+        // Błąd przy próbie wysłania, ale notatka już zapisana
+        console.error(`[NotesService] Failed to initiate notification request for note ${newNote.id}:`, notificationError.message);
+      }
+    } else {
+      console.log(`[NotesService] Notifications service URL not configured, skipping notification for note ${newNote.id}.`);
+    }
+
     res.status(201).json(newNote);
   } catch (error) {
     console.error("[NotesService] Error creating note:", error);
