@@ -21,6 +21,9 @@ if (!awsRegion || !s3BucketName || !dynamoDbTableName) {
   process.exit(1);
 }
 
+// partition key: userId
+// sort key: fileId
+
 // --- Klienci AWS SDK ---
 // Zakładamy, że uprawnienia pochodzą z roli IAM zadania Fargate
 const s3Client = new S3Client({

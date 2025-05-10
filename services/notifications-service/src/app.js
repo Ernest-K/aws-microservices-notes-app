@@ -20,6 +20,9 @@ if (!awsRegion || !snsTopicArn || !dynamoDbTableName) {
   process.exit(1);
 }
 
+// partition key: recipientUserId
+// sort key: notificationId
+
 // --- Klienci AWS SDK ---
 // Zakładamy, że uprawnienia pochodzą z roli IAM zadania Fargate
 const snsClient = new SNSClient({ region: awsRegion });
@@ -53,8 +56,11 @@ app.use(extractUserIdOptional); // Stosujemy do wszystkich tras
 // POST /send : Endpoint do wysłania testowego powiadomienia
 // W ciele żądania można przekazać `subject` i `message`
 app.post("/send", async (req, res) => {
-  const { subject, message, recipientUserId } = req.body; // recipientUserId jest opcjonalny
+  const { recipientUserId, subject, message } = req.body;
 
+  if (!recipientUserId) {
+    return res.status(400).json({ message: 'Pole "recipientUserId" jest wymagane.' });
+  }
   if (!subject || !message) {
     return res.status(400).json({ message: 'Pola "subject" i "message" są wymagane.' });
   }
@@ -69,14 +75,15 @@ app.post("/send", async (req, res) => {
     Message: message,
     // Opcjonalnie: Atrybuty wiadomości, jeśli subskrybenci filtrują
     MessageAttributes: {
-      userId: { DataType: "String", StringValue: recipientUserId || "system" },
+      userId: { DataType: "String", StringValue: recipientUserId },
+      eventType: { DataType: "String", StringValue: "NewNoteNotification" },
     },
   };
 
   try {
     const snsCommand = new PublishCommand(snsParams);
     const snsResponse = await snsClient.send(snsCommand);
-    console.log(`[NotificationsService] Message published to SNS. Message ID: ${snsResponse.MessageId}`);
+    console.log(`[NotificationsService] Message published to SNS for recipient ${recipientUserId}. SNS Message ID: ${snsResponse.MessageId}`);
 
     // 2. Zapisz do historii w DynamoDB
     const dynamoDbParams = {
@@ -103,7 +110,7 @@ app.post("/send", async (req, res) => {
 
     const dynamoDbCommand = new PutCommand(dynamoDbParams);
     await ddbDocClient.send(dynamoDbCommand);
-    console.log(`[NotificationsService] Notification history saved to DynamoDB. Notification ID: ${notificationId}`);
+    console.log(`[NotificationsService] Notification history saved to DynamoDB. Recipient: ${recipientUserId}, Notification ID: ${notificationId}`);
 
     res.status(200).json({
       message: "Powiadomienie zostało wysłane i zapisane w historii.",
@@ -119,7 +126,7 @@ app.post("/send", async (req, res) => {
       const failedHistoryParams = {
         TableName: dynamoDbTableName,
         Item: {
-          partitionKey: recipientUserId || "system_notifications",
+          partitionKey: recipientUserId,
           notificationId: notificationId,
           subject: subject,
           message: message,
@@ -144,7 +151,11 @@ app.post("/send", async (req, res) => {
 app.get("/history", async (req, res) => {
   // Możemy filtrować po `recipientUserId` lub po prostu pobrać ostatnie X systemowych.
   // Na razie zaimplementujemy pobieranie dla konkretnego `recipientUserId` lub systemowych.
-  const queryUserId = req.query.userId || "system_notifications"; // Domyślnie systemowe
+  const queryUserId = req.query.userId; // Domyślnie systemowe
+
+  if (!queryUserId) {
+    return res.status(400).json({ message: "ID użytkownika (userId) jest wymagane." });
+  }
 
   const params = {
     TableName: dynamoDbTableName,
