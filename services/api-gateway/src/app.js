@@ -121,58 +121,125 @@ const commonProxyOptions = {
 // --- Routing ---
 
 // Ścieżki /auth/* NIE wymagają middleware autoryzacyjnego (oprócz /profile)
-app.use("/auth/login", createProxyMiddleware({ ...commonProxyOptions, target: AUTH_SERVICE_URL + "/login" }));
-app.use("/auth/register", createProxyMiddleware({ ...commonProxyOptions, target: AUTH_SERVICE_URL + "/register" }));
-app.use("/auth/confirm", createProxyMiddleware({ ...commonProxyOptions, target: AUTH_SERVICE_URL + "/confirm" }));
-app.use("/auth/forgot-password", createProxyMiddleware({ ...commonProxyOptions, target: AUTH_SERVICE_URL + "/forgot-password" }));
-app.use("/auth/reset-password", createProxyMiddleware({ ...commonProxyOptions, target: AUTH_SERVICE_URL + "/reset-password" }));
+app.use(
+  "/api/auth/login",
+  createProxyMiddleware({
+    ...commonProxyOptions,
+    pathRewrite: {
+      [`^/api/auth`]: "",
+    },
+    target: AUTH_SERVICE_URL + "/login",
+  })
+);
+app.use(
+  "/api/auth/register",
+  createProxyMiddleware({
+    ...commonProxyOptions,
+    pathRewrite: {
+      [`^/api/auth`]: "",
+    },
+    target: AUTH_SERVICE_URL + "/register",
+  })
+);
+app.use(
+  "/api/auth/confirm",
+  createProxyMiddleware({
+    ...commonProxyOptions,
+    pathRewrite: {
+      [`^/api/auth`]: "",
+    },
+    target: AUTH_SERVICE_URL + "/confirm",
+  })
+);
+app.use(
+  "/api/auth/forgot-password",
+  createProxyMiddleware({
+    ...commonProxyOptions,
+    pathRewrite: {
+      [`^/api/auth`]: "",
+    },
+    target: AUTH_SERVICE_URL + "/forgot-password",
+  })
+);
+app.use(
+  "/api/auth/reset-password",
+  createProxyMiddleware({
+    ...commonProxyOptions,
+    pathRewrite: {
+      [`^/api/auth`]: "",
+    },
+    target: AUTH_SERVICE_URL + "/reset-password",
+  })
+);
+app.use(
+  "/api/auth/health",
+  createProxyMiddleware({
+    ...commonProxyOptions,
+    pathRewrite: {
+      [`^/api/auth`]: "",
+    },
+    target: AUTH_SERVICE_URL + "/health",
+  })
+);
 
 // Endpoint /auth/profile wymaga autoryzacji
 app.use(
-  "/auth/profile",
+  "/api/auth/profile",
   authenticateAndAttachUser,
   createProxyMiddleware({
     // Dodano middleware
     ...commonProxyOptions,
+    pathRewrite: {
+      [`^/api/auth`]: "",
+    },
     target: AUTH_SERVICE_URL + "/profile",
   })
 );
 
 // Ścieżki /notes/* i /files/* ZAWSZE wymagają autoryzacji
 app.use(
-  "/notes",
+  "/api/notes",
   authenticateAndAttachUser,
   createProxyMiddleware({
     // Dodano middleware
     ...commonProxyOptions,
+    pathRewrite: {
+      [`^/api/notes`]: "",
+    },
     target: NOTES_SERVICE_URL,
     pathRewrite: { "^/notes": "" },
   })
 );
 
 app.use(
-  "/files",
+  "/api/files",
   authenticateAndAttachUser,
   createProxyMiddleware({
     // Dodano middleware
     ...commonProxyOptions,
+    pathRewrite: {
+      [`^/api/files`]: "",
+    },
     target: FILES_SERVICE_URL,
     pathRewrite: { "^/files": "" },
   })
 );
 
 app.use(
-  "/notifications",
+  "/api/notifications",
   createProxyMiddleware({
     // Dodano middleware
     ...commonProxyOptions,
+    pathRewrite: {
+      [`^/api/notifications`]: "",
+    },
     target: NOTIFICATIONS_SERVICE_URL,
     pathRewrite: { "^/notifications": "" },
   })
 );
 
 // Health Check dla samego Gatewaya
-app.get("/health", (req, res) => {
+app.get("/api/health", (req, res) => {
   res.status(200).send("API Gateway OK");
 });
 

@@ -112,7 +112,7 @@ app.use(extractUserId);
 // --- Endpointy CRUD dla Notatek ---
 
 // GET / : Pobierz wszystkie notatki dla zalogowanego użytkownika
-app.get("/", async (req, res) => {
+app.get("/notes/", async (req, res) => {
   try {
     const notes = await Note.findAll({
       where: { userId: req.userId }, // Filtrujemy po ID użytkownika z nagłówka
@@ -126,7 +126,7 @@ app.get("/", async (req, res) => {
 });
 
 // POST / : Utwórz nową notatkę dla zalogowanego użytkownika
-app.post("/", async (req, res) => {
+app.post("/notes/", async (req, res) => {
   const { title, content } = req.body;
   const userId = req.userId;
 
@@ -180,7 +180,7 @@ app.post("/", async (req, res) => {
 });
 
 // GET /:id : Pobierz konkretną notatkę użytkownika
-app.get("/:id", async (req, res) => {
+app.get("/notes/:id", async (req, res) => {
   const noteId = req.params.id;
 
   try {
@@ -202,7 +202,7 @@ app.get("/:id", async (req, res) => {
 });
 
 // PUT /:id : Aktualizuj konkretną notatkę użytkownika
-app.put("/:id", async (req, res) => {
+app.put("/notes/:id", async (req, res) => {
   const noteId = req.params.id;
   const { title, content } = req.body;
 
@@ -237,7 +237,7 @@ app.put("/:id", async (req, res) => {
 });
 
 // DELETE /:id : Usuń konkretną notatkę użytkownika
-app.delete("/:id", async (req, res) => {
+app.delete("/notes/:id", async (req, res) => {
   const noteId = req.params.id;
 
   try {
@@ -263,7 +263,7 @@ app.delete("/:id", async (req, res) => {
 });
 
 // GET /health : Endpoint sprawdzający stan serwisu i połączenie z bazą
-app.get("/health", async (req, res) => {
+app.get("/notes/health", async (req, res) => {
   try {
     // Sprawdź połączenie z bazą danych
     await Note.sequelize.authenticate(); // Używamy sequelize z importowanego modelu

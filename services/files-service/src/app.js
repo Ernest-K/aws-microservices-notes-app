@@ -79,7 +79,7 @@ const extractUserId = (req, res, next) => {
 
 // POST /upload : Upload pliku
 // Używamy middleware Multera i extractUserId
-app.post("/upload", extractUserId, upload.single("file"), async (req, res) => {
+app.post("/files/upload", extractUserId, upload.single("file"), async (req, res) => {
   // Sprawdzamy, czy plik został przesłany przez Multer
   if (!req.file) {
     return res.status(400).json({ message: 'Plik nie został przesłany (oczekiwano pola "file")' });
@@ -155,7 +155,7 @@ app.post("/upload", extractUserId, upload.single("file"), async (req, res) => {
 
 // GET / : Listowanie plików użytkownika
 // Stosujemy middleware extractUserId
-app.get("/", extractUserId, async (req, res) => {
+app.get("/files/", extractUserId, async (req, res) => {
   const userId = req.userId;
 
   const params = {
@@ -183,7 +183,7 @@ app.get("/", extractUserId, async (req, res) => {
 
 // DELETE /:fileId : Usuwanie pliku użytkownika
 // Stosujemy middleware extractUserId
-app.delete("/:fileId", extractUserId, async (req, res) => {
+app.delete("/files/:fileId", extractUserId, async (req, res) => {
   const userId = req.userId;
   const fileId = req.params.fileId;
 
@@ -252,7 +252,7 @@ app.delete("/:fileId", extractUserId, async (req, res) => {
 });
 
 // GET /health : Endpoint sprawdzający stan serwisu
-app.get("/health", (req, res) => {
+app.get("/files/health", (req, res) => {
   // Można dodać prosty check połączenia z S3/DynamoDB, jeśli potrzebne
   res.status(200).json({ status: "UP", message: "Files Service is running" });
 });

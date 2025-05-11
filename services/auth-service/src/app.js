@@ -1,7 +1,15 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { CognitoIdentityProviderClient, SignUpCommand, ConfirmSignUpCommand, InitiateAuthCommand, ForgotPasswordCommand, ConfirmForgotPasswordCommand, GetUserCommand } from "@aws-sdk/client-cognito-identity-provider";
+import {
+  CognitoIdentityProviderClient,
+  SignUpCommand,
+  ConfirmSignUpCommand,
+  InitiateAuthCommand,
+  ForgotPasswordCommand,
+  ConfirmForgotPasswordCommand,
+  GetUserCommand,
+} from "@aws-sdk/client-cognito-identity-provider";
 
 dotenv.config();
 
@@ -40,7 +48,7 @@ const cognitoClient = new CognitoIdentityProviderClient({
 // --- Endpointy API ---
 
 // POST /register : Rejestracja nowego użytkownika
-app.post("/register", async (req, res) => {
+app.post("/auth/register", async (req, res) => {
   const { email, password, firstName, lastName } = req.body;
 
   if (!email || !password) {
@@ -77,7 +85,7 @@ app.post("/register", async (req, res) => {
 });
 
 // POST /confirm : Potwierdzenie rejestracji kodem
-app.post("/confirm", async (req, res) => {
+app.post("/auth/confirm", async (req, res) => {
   const { email, confirmationCode } = req.body;
 
   if (!email || !confirmationCode) {
@@ -103,7 +111,7 @@ app.post("/confirm", async (req, res) => {
 });
 
 // POST /login : Logowanie użytkownika
-app.post("/login", async (req, res) => {
+app.post("/auth/login", async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -178,7 +186,7 @@ app.post("/login", async (req, res) => {
 });
 
 // POST /forgot-password : Wysłanie kodu resetu hasła
-app.post("/forgot-password", async (req, res) => {
+app.post("/auth/forgot-password", async (req, res) => {
   const { email } = req.body;
 
   if (!email) {
@@ -204,7 +212,7 @@ app.post("/forgot-password", async (req, res) => {
 });
 
 // POST /reset-password : Ustawienie nowego hasła z kodem
-app.post("/reset-password", async (req, res) => {
+app.post("/auth/reset-password", async (req, res) => {
   const { email, confirmationCode, newPassword } = req.body;
 
   if (!email || !confirmationCode || !newPassword) {
@@ -232,7 +240,7 @@ app.post("/reset-password", async (req, res) => {
 
 // GET /profile : Pobranie danych użytkownika na podstawie Access Tokenu
 // Ten endpoint zakłada, że Access Token jest przekazywany w nagłówku przez gateway
-app.get("/profile", async (req, res) => {
+app.get("/auth/profile", async (req, res) => {
   // Oczekujemy, że API Gateway przekazało oryginalny nagłówek Authorization
   const authHeader = req.headers.authorization;
   const accessToken = authHeader && authHeader.split(" ")[1]; // Wyciągnij token
@@ -283,7 +291,7 @@ app.get("/profile", async (req, res) => {
 });
 
 // GET /health : Podstawowy endpoint sprawdzający "życie" serwisu
-app.get("/health", (req, res) => {
+app.get("/auth/health", (req, res) => {
   res.status(200).json({ status: "UP", message: "Auth Service is running" });
 });
 

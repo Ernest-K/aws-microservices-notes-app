@@ -369,17 +369,17 @@ locals {
       image_uri        = var.api_gateway_image_uri
       log_group        = aws_cloudwatch_log_group.api_gateway_lg.name
       tg_port          = 80      # Port dla Target Group
-      alb_path         = "/*"  # Ścieżka na ALB
+      alb_path         = "/api/*"  # Ścieżka na ALB
       alb_priority     = 10        # Priorytet reguły ALB
       cpu              = 256       # Jednostki CPU dla Fargate
       memory           = 512       # Pamięć w MB dla Fargate
       environment_vars = [         # Zmienne środowiskowe
         { name = "PORT", value = "80" },
         { name = "AWS_REGION", value = var.aws_region },
-        { name = "AUTH_SERVICE_URL", value = "http://${aws_lb.main_alb.dns_name}" },
-        { name = "NOTES_SERVICE_URL", value = "http://${aws_lb.main_alb.dns_name}" },
-        { name = "FILES_SERVICE_URL", value = "http://${aws_lb.main_alb.dns_name}" },
-        { name = "NOTIFICATIONS_SERVICE_URL", value = "http://${aws_lb.main_alb.dns_name}" },
+        { name = "AUTH_SERVICE_URL", value = "http://${aws_lb.main_alb.dns_name}/auth" },
+        { name = "NOTES_SERVICE_URL", value = "http://${aws_lb.main_alb.dns_name}/notes" },
+        { name = "FILES_SERVICE_URL", value = "http://${aws_lb.main_alb.dns_name}/files" },
+        { name = "NOTIFICATIONS_SERVICE_URL", value = "http://${aws_lb.main_alb.dns_name}/notifications" },
         { name = "AWS_ACCESS_KEY_ID", value = var.aws_access_key_id },
         { name = "AWS_SECRET_ACCESS_KEY", value = var.aws_secret_access_key },
         { name = "AWS_SESSION_TOKEN", value = var.aws_session_token },
@@ -512,7 +512,7 @@ resource "aws_lb_target_group" "app_target_groups" {
     path                = "/health" # Zakładając, że wszystkie backendy mają /health
     protocol            = "HTTP"
     matcher             = "200-299"
-    interval            = 30
+    interval            = 300
     timeout             = 10
     healthy_threshold   = 2
     unhealthy_threshold = 3
@@ -639,7 +639,7 @@ resource "aws_elastic_beanstalk_environment" "frontend_env_eb" { # Zmieniona naz
     namespace = "aws:elasticbeanstalk:application:environment"
     name      = "VITE_API_URL"
     # API Gateway będzie dostępne przez ALB na ścieżce /api
-    value     = "http://${aws_lb.main_alb.dns_name}"
+    value     = "http://${aws_lb.main_alb.dns_name}/api"
   }
   setting {
     namespace = "aws:autoscaling:launchconfiguration"

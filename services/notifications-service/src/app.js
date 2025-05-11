@@ -55,7 +55,7 @@ app.use(extractUserIdOptional); // Stosujemy do wszystkich tras
 
 // POST /send : Endpoint do wysłania testowego powiadomienia
 // W ciele żądania można przekazać `subject` i `message`
-app.post("/send", async (req, res) => {
+app.post("/notifications/send", async (req, res) => {
   const { recipientUserId, subject, message } = req.body;
 
   if (!recipientUserId) {
@@ -148,7 +148,7 @@ app.post("/send", async (req, res) => {
 
 // GET /history : Pobierz historię powiadomień (np. dla danego użytkownika lub systemowych)
 // Opcjonalny query param `userId`
-app.get("/history", async (req, res) => {
+app.get("/notifications/history", async (req, res) => {
   // Możemy filtrować po `recipientUserId` lub po prostu pobrać ostatnie X systemowych.
   // Na razie zaimplementujemy pobieranie dla konkretnego `recipientUserId` lub systemowych.
   const queryUserId = req.query.userId; // Domyślnie systemowe
@@ -179,7 +179,7 @@ app.get("/history", async (req, res) => {
 });
 
 // GET /health : Endpoint sprawdzający stan serwisu
-app.get("/health", (req, res) => {
+app.get("/notifications/health", (req, res) => {
   // Można dodać prosty check SNS publish (np. do martwego tematu) lub DynamoDB, jeśli potrzebne
   res.status(200).json({ status: "UP", message: "Notifications Service is running" });
 });

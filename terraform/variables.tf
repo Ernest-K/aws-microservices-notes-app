@@ -52,25 +52,25 @@ variable "frontend_image_uri" {
 
 variable "api_gateway_image_uri" {
   description = "Docker image URI for the API Gateway service"
-  default     = "264019/microservies-notes-app-api-gateway:latest" # Zaktualizuj po pushu do ECR
+  default     = "264019/microservies-notes-app-api-gateway-v3:latest" # Zaktualizuj po pushu do ECR
 }
 
 variable "auth_service_image_uri" {
   description = "Docker image URI for the Auth service"
-  default     = "264019/microservies-notes-app-auth-service:latest" # Zaktualizuj po pushu do ECR
+  default     = "264019/microservies-notes-app-auth-service-v2:latest" # Zaktualizuj po pushu do ECR
 }
 
 variable "notes_service_image_uri" {
   description = "Docker image URI for the Notes service"
-  default     = "264019/microservies-notes-app-notes-service:latest" # Zaktualizuj po pushu do ECR
+  default     = "264019/microservies-notes-app-notes-service-v2:latest" # Zaktualizuj po pushu do ECR
 }
 
 variable "files_service_image_uri" {
   description = "Docker image URI for the Files service"
-  default     = "264019/microservies-notes-app-files-service:latest" # Zaktualizuj po pushu do ECR
+  default     = "264019/microservies-notes-app-files-service-v2:latest" # Zaktualizuj po pushu do ECR
 }
 
 variable "notifications_service_image_uri" {
   description = "Docker image URI for the Notifications service"
-  default     = "264019/microservies-notes-app-notifications-service:latest" # Zaktualizuj po pushu do ECR
+  default     = "264019/microservies-notes-app-notifications-service-v2:latest" # Zaktualizuj po pushu do ECR
 }
