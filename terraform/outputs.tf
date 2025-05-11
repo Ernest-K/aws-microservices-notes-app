@@ -1,13 +1,3 @@
-output "frontend_url" {
-  description = "URL of the frontend application"
-  value       = "http://${aws_lb.main_alb.dns_name}" # Frontend jest na domyślnej ścieżce "/"
-}
-
-output "api_gateway_url" {
-  description = "URL of the API Gateway"
-  value       = "http://${aws_lb.main_alb.dns_name}/api"
-}
-
 output "rds_database_endpoint" {
   description = "Endpoint of the RDS database instance"
   value       = aws_db_instance.app_db.endpoint
@@ -38,7 +28,7 @@ output "frontend_eb_url" {
   value       = "http://${aws_elastic_beanstalk_environment.frontend_env_eb.cname}"
 }
 
-output "api_gateway_fargate_url" { # Zmieniona nazwa dla jasności
-  description = "URL of the API Gateway (Fargate via ALB)"
+output "api_gateway_url" {
+  description = "URL of the API Gateway"
   value       = "http://${aws_lb.main_alb.dns_name}/api"
 }

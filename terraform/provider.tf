@@ -27,7 +27,6 @@ resource "random_string" "suffix" {
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
-# Domyślne VPC i podsieci
 data "aws_vpc" "default" {
   default = true
 }
@@ -37,7 +36,4 @@ data "aws_subnets" "default" {
     name   = "vpc-id"
     values = [data.aws_vpc.default.id]
   }
-  # W AWS Academy Learner Lab, Fargate często wymaga podsieci publicznych
-  # Jeśli masz dedykowane podsieci publiczne, filtruj po tagach
-  # Dla uproszczenia, bierzemy wszystkie domyślne. Fargate wybierze odpowiednie.
 }

@@ -1,269 +1,18 @@
-# -- S3 Bucket for Files Service --
-resource "aws_s3_bucket" "app_files_bucket" {
-  bucket = "${var.app_name}-files-${random_string.suffix.result}"
-}
-
-resource "aws_s3_bucket_public_access_block" "app_files_bucket_access_block" {
-  bucket = aws_s3_bucket.app_files_bucket.id
-}
-
-resource "aws_s3_bucket_ownership_controls" "app_files_bucket_ownership" {
-  bucket = aws_s3_bucket.app_files_bucket.id
-  rule {
-    object_ownership = "BucketOwnerPreferred"
-  }
-}
-
-resource "aws_s3_bucket_acl" "app_files_bucket_acl" {
-  depends_on = [
-    aws_s3_bucket_ownership_controls.app_files_bucket_ownership,
-    aws_s3_bucket_public_access_block.app_files_bucket_access_block,
-  ]
-  bucket = aws_s3_bucket.app_files_bucket.id
-  acl    = "public-read-write" # Ustaw na "public-read" jeśli pliki mają być bezpośrednio dostępne publicznie z S3
-                      # Aplikacja `files-service` używa `ACL: "public-read"` dla obiektów.
-}
-
-
-# -- RDS PostgreSQL for Notes Service --
-resource "aws_security_group" "rds_sg" {
-  name        = "${var.app_name}-rds-sg"
-  description = "Allow PostgreSQL access from Fargate services"
-  vpc_id      = data.aws_vpc.default.id
-
-  # Reguła ingress będzie dodana później, aby zezwolić na ruch z SG serwisu notes
-}
-
-resource "aws_db_instance" "app_db" {
-  identifier           = "${var.app_name}-db-${random_string.suffix.result}"
-  allocated_storage    = 20
-  engine               = "postgres"
-  engine_version       = "17.2" # Sprawdź najnowszą wspieraną wersję db.t3.micro
-  instance_class       = "db.t3.micro" # Sprawdź dostępność w AWS Academy
-  db_name              = "notesdb"
-  username             = var.db_username
-  password             = var.db_password
-  parameter_group_name = "test" # Upewnij się, że ta grupa istnieje dla Twojej wersji silnika
-  skip_final_snapshot  = true
-  publicly_accessible  = true # Dostęp tylko z VPC
-  vpc_security_group_ids = [aws_security_group.rds_sg.id]
-  # W AWS Academy możesz potrzebować `publicly_accessible = true` i odpowiednich reguł SG,
-  # jeśli Fargate Tasks nie mają łatwego dostępu do prywatnych zasobów.
-  # Na razie zakładamy, że dostęp prywatny jest możliwy.
-  # `db_subnet_group_name` może być potrzebny, jeśli nie jest w domyślnych podsieciach.
-}
-
-# -- Cognito User Pool & Client --
-resource "aws_cognito_user_pool" "app_user_pool" {
-  name = "${var.app_name}-user-pool-${random_string.suffix.result}"
-  auto_verified_attributes = ["email"]
-}
-
-resource "aws_cognito_user_pool_client" "app_client" {
-  name         = "${var.app_name}-client"
-  user_pool_id = aws_cognito_user_pool.app_user_pool.id
-
-  generate_secret = false # Dla aplikacji frontendowych
-  explicit_auth_flows = [
-    "ALLOW_USER_PASSWORD_AUTH",
-    "ALLOW_REFRESH_TOKEN_AUTH",
-    "ALLOW_USER_SRP_AUTH",
-  ]
-}
-
-# -- DynamoDB Tables --
-resource "aws_dynamodb_table" "files_metadata_table" {
-  name         = "${var.app_name}-files-metadata-${random_string.suffix.result}"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "userId"
-  range_key    = "fileId"
-
-  attribute {
-    name = "userId"
-    type = "S"
-  }
-  attribute {
-    name = "fileId"
-    type = "S"
-  }
-}
-
-resource "aws_dynamodb_table" "notifications_history_table" {
-  name         = "${var.app_name}-notifications-history-${random_string.suffix.result}"
-  # Zgodnie z kodem notifications-service, notificationId jest unikalny i używany jako klucz.
-  # recipientUserId jest używany do filtrowania, więc może być GSI lub częścią złożonego klucza.
-  # Dla uproszczenia, zakładając że notificationId jest głównym kluczem wyszukiwania (choć kod używa go jako PK):
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key = "recipientUserId" # Zgodnie z kodem notifications-service app.js ddbDocClient.send(new PutCommand(dynamoDbParams))
-                              # gdzie dynamoDbParams.Item.notificationId jest ustawiany.
-                              # recipientUserId byłby dobry dla GSI do zapytań per użytkownik.
-  range_key    = "notificationId"
-  attribute {
-    name = "recipientUserId"
-    type = "S"
-  }
-  attribute {
-    name = "notificationId"
-    type = "S"
-  }
-  # Jeśli chcesz zapytywać po recipientUserId, dodaj GSI:
-  # global_secondary_index {
-  #   name            = "RecipientUserIndex"
-  #   hash_key        = "recipientUserId"
-  #   projection_type = "ALL"
-  # }
-  # attribute {
-  #   name = "recipientUserId" # Musi być zdefiniowany jako atrybut, jeśli jest kluczem GSI
-  #   type = "S"
-  # }
-}
-
-# -- SNS Topic for Notifications --
-resource "aws_sns_topic" "notifications_topic" {
-  name = "${var.app_name}-notifications-topic-${random_string.suffix.result}"
-}
-
-# -- IAM Roles for Fargate Tasks --
-# data "aws_iam_policy_document" "ecs_task_assume_role_policy" {
-#   statement {
-#     actions = ["sts:AssumeRole"]
-#     principals {
-#       type        = "Service"
-#       identifiers = ["ecs-tasks.amazonaws.com"]
-#     }
-#   }
-# }
-
-# resource "aws_iam_role" "ecs_task_role" {
-#   name               = "${var.app_name}-ecs-task-role"
-#   assume_role_policy = data.aws_iam_policy_document.ecs_task_assume_role_policy.json
-# }
-
-# Polityka dla zadań ECS dająca dostęp do potrzebnych serwisów
-# data "aws_iam_policy_document" "ecs_task_permissions_policy_doc" {
-#   statement {
-#     actions = [
-#       "ecr:GetAuthorizationToken",
-#       "ecr:BatchCheckLayerAvailability",
-#       "ecr:GetDownloadUrlForLayer",
-#       "ecr:BatchGetImage",
-#       "logs:CreateLogStream",
-#       "logs:PutLogEvents"
-#     ]
-#     resources = ["*"] # ECR i CloudWatch logs są szerokie
-#   }
-#   statement {
-#     actions = [
-#       "s3:PutObject",
-#       "s3:GetObject",
-#       "s3:DeleteObject",
-#       "s3:PutObjectAcl" # Ze względu na `ACL: "public-read"` w files-service
-#     ]
-#     resources = [
-#       "${aws_s3_bucket.app_files_bucket.arn}/*" # Dostęp do obiektów w buckecie
-#     ]
-#   }
-#   statement {
-#     actions = [
-#       "s3:ListBucket" # Może być potrzebne dla niektórych operacji S3
-#     ]
-#     resources = [
-#       aws_s3_bucket.app_files_bucket.arn
-#     ]
-#   }
-#   statement {
-#     actions = [
-#       "dynamodb:PutItem",
-#       "dynamodb:GetItem",
-#       "dynamodb:DeleteItem",
-#       "dynamodb:Query",
-#       "dynamodb:Scan" # Scan jest używany rzadziej, Query preferowane
-#     ]
-#     resources = [
-#       aws_dynamodb_table.files_metadata_table.arn,
-#       aws_dynamodb_table.notifications_history_table.arn,
-#       # Jeśli masz GSI, dodaj ich ARN-y:
-#       # "${aws_dynamodb_table.notifications_history_table.arn}/index/*",
-#     ]
-#   }
-#   statement {
-#     actions = [
-#       "sns:Publish"
-#     ]
-#     resources = [aws_sns_topic.notifications_topic.arn]
-#   }
-#   statement {
-#     # Cognito permissions for auth-service and api-gateway
-#     actions = [
-#       "cognito-idp:AdminInitiateAuth",
-#       "cognito-idp:AdminRespondToAuthChallenge",
-#       "cognito-idp:SignUp",
-#       "cognito-idp:ConfirmSignUp",
-#       "cognito-idp:InitiateAuth",
-#       "cognito-idp:RespondToAuthChallenge",
-#       "cognito-idp:ForgotPassword",
-#       "cognito-idp:ConfirmForgotPassword",
-#       "cognito-idp:GetUser"
-#       # Dodaj inne potrzebne akcje Cognito
-#     ]
-#     resources = [aws_cognito_user_pool.app_user_pool.arn]
-#   }
-#   # Dodatkowe uprawnienia dla RDS (jeśli używasz IAM auth, ale tu używamy hasła)
-#   # W przypadku AWS Academy, przekazanie credentials przez env vars jest częste,
-#   # ale rolą ECS Task Role jest lepszym podejściem w standardowym AWS.
-#   # Poniżej zakładam, że aplikacje będą miały credentials przez env vars.
-# }
-
-# resource "aws_iam_policy" "ecs_task_permissions_policy" {
-#   name   = "${var.app_name}-ecs-task-permissions-policy"
-#   policy = data.aws_iam_policy_document.ecs_task_permissions_policy_doc.json
-# }
-
-# resource "aws_iam_role_policy_attachment" "ecs_task_role_permissions_attachment" {
-#   role       = "LabRole"
-#   policy_arn = aws_iam_policy.ecs_task_permissions_policy.arn
-# }
-
-# -- ECR Repositories --
-# Tworzymy repozytoria dla każdego serwisu
-resource "aws_ecr_repository" "frontend_repo" { name = "${var.app_name}-frontend" }
-resource "aws_ecr_repository" "api_gateway_repo" { name = "${var.app_name}-api-gateway" }
-resource "aws_ecr_repository" "auth_service_repo" { name = "${var.app_name}-auth-service" }
-resource "aws_ecr_repository" "notes_service_repo" { name = "${var.app_name}-notes-service" }
-resource "aws_ecr_repository" "files_service_repo" { name = "${var.app_name}-files-service" }
-resource "aws_ecr_repository" "notifications_service_repo" { name = "${var.app_name}-notifications-service" }
-
 # -- ECS Cluster --
 resource "aws_ecs_cluster" "main_cluster" {
   name = "${var.app_name}-cluster"
 }
 
-# -- CloudWatch Log Groups --
-# Tworzymy grupy logów dla każdego serwisu
-resource "aws_cloudwatch_log_group" "frontend_lg" { name = "/ecs/${var.app_name}-frontend" }
-resource "aws_cloudwatch_log_group" "api_gateway_lg" { name = "/ecs/${var.app_name}-api-gateway" }
-resource "aws_cloudwatch_log_group" "auth_service_lg" { name = "/ecs/${var.app_name}-auth-service" }
-resource "aws_cloudwatch_log_group" "notes_service_lg" { name = "/ecs/${var.app_name}-notes-service" }
-resource "aws_cloudwatch_log_group" "files_service_lg" { name = "/ecs/${var.app_name}-files-service" }
-resource "aws_cloudwatch_log_group" "notifications_service_lg" { name = "/ecs/${var.app_name}-notifications-service" }
-
-
 # -- Application Load Balancer --
 resource "aws_security_group" "alb_sg" {
   name        = "${var.app_name}-alb-sg"
-  description = "Allow HTTP/HTTPS traffic to ALB"
+  description = "Allow HTTP traffic to ALB"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
     protocol    = "tcp"
     from_port   = 80
     to_port     = 80
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  ingress {
-    protocol    = "tcp"
-    from_port   = 443 # Jeśli planujesz HTTPS
-    to_port     = 443
     cidr_blocks = ["0.0.0.0/0"]
   }
   egress {
@@ -282,28 +31,6 @@ resource "aws_lb" "main_alb" {
   subnets            = data.aws_subnets.default.ids # ALB powinien być w podsieciach publicznych
   enable_deletion_protection = false
 }
-
-
-
-# Domyślna grupa docelowa dla żądań, które nie pasują do żadnej reguły (np. zwraca 404)
-# lub możemy ją skierować na frontend.
-resource "aws_lb_target_group" "default_tg" {
-  name        = "${var.app_name}-default-tg"
-  port        = 80
-  protocol    = "HTTP"
-  vpc_id      = data.aws_vpc.default.id
-  target_type = "ip" # Dla Fargate
-  health_check {
-    path                = "/" # Dostosuj, jeśli default TG ma kierować na konkretny serwis
-    protocol            = "HTTP"
-    matcher             = "200-499" # Oczekiwane kody odpowiedzi dla healthy
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
-  }
-}
-
 
 resource "aws_lb_listener" "http_listener" {
   load_balancer_arn = aws_lb.main_alb.arn
@@ -330,8 +57,8 @@ resource "aws_security_group" "fargate_services_sg" {
 
   ingress {
     protocol        = "tcp"
-    from_port       = 80 # Wszystkie porty
-    to_port         = 80 # Wszystkie porty
+    from_port       = 80 
+    to_port         = 80 
     security_groups = [aws_security_group.alb_sg.id] # Zezwól na ruch tylko z ALB
   }
 
@@ -343,15 +70,6 @@ resource "aws_security_group" "fargate_services_sg" {
   }
 }
 
-# Reguła dostępu z Fargate do RDS
-resource "aws_security_group_rule" "fargate_to_rds" {
-  type                     = "ingress"
-  from_port                = 5432 # Port PostgreSQL
-  to_port                  = 5432
-  protocol                 = "tcp"
-  source_security_group_id = aws_security_group.fargate_services_sg.id
-  security_group_id        = aws_security_group.rds_sg.id
-}
 
 
 # --- Helper: Moduł do tworzenia usług Fargate (aby uniknąć powtórzeń) ---
@@ -363,11 +81,9 @@ resource "aws_security_group_rule" "fargate_to_rds" {
 # Lokalna zmienna do przechowywania konfiguracji serwisów
 locals {
   services_config = {
-    # Frontend NIE BĘDZIE tutaj, bo wdrażamy go przez Beanstalk
     api-gateway = {
       port             = 80
       image_uri        = var.api_gateway_image_uri
-      log_group        = aws_cloudwatch_log_group.api_gateway_lg.name
       tg_port          = 80      # Port dla Target Group
       alb_path         = "/api/*"  # Ścieżka na ALB
       alb_priority     = 10        # Priorytet reguły ALB
@@ -388,7 +104,6 @@ locals {
     auth-service = {
       port             = 80
       image_uri        = var.auth_service_image_uri
-      log_group        = aws_cloudwatch_log_group.auth_service_lg.name
       tg_port          = 80
       alb_path         = "/auth/*"
       alb_priority     = 30
@@ -406,7 +121,6 @@ locals {
     notes-service = {
       port             = 80
       image_uri        = var.notes_service_image_uri
-      log_group        = aws_cloudwatch_log_group.notes_service_lg.name
       tg_port          = 80
       alb_path         = "/notes/*"
       alb_priority     = 40
@@ -422,7 +136,6 @@ locals {
     files-service = {
       port             = 80
       image_uri        = var.files_service_image_uri
-      log_group        = aws_cloudwatch_log_group.files_service_lg.name
       tg_port          = 80
       alb_path         = "/files/*"
       alb_priority     = 50
@@ -441,7 +154,6 @@ locals {
     notifications-service = {
       port             = 80
       image_uri        = var.notifications_service_image_uri
-      log_group        = aws_cloudwatch_log_group.notifications_service_lg.name
       tg_port          = 80
       alb_path         = "/notifications/*"
       alb_priority     = 60
@@ -457,7 +169,6 @@ locals {
         { name = "AWS_SESSION_TOKEN", value = var.aws_session_token },
       ]
     }
-    # Upewnij się, że nie ma tu już 'frontend'
   }
 }
 
@@ -485,14 +196,6 @@ resource "aws_ecs_task_definition" "app_task_definitions" {
           hostPort      = each.value.port
         }
       ]
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = each.value.log_group
-          "awslogs-region"        = var.aws_region
-          "awslogs-stream-prefix" = "ecs"
-        }
-      }
       environment = each.value.environment_vars
     }
   ])
@@ -597,10 +300,6 @@ resource "aws_elastic_beanstalk_application" "app_frontend_eb" { # Zmieniona naz
   description = "Frontend application for ${var.app_name}"
 }
 
-resource "aws_s3_bucket" "eb_app_versions_frontend" {
-  bucket = "${var.app_name}-eb-frontend-versions-${random_string.suffix.result}"
-}
-
 resource "aws_s3_object" "frontend_dockerrun_eb" { # Zmieniona nazwa
   bucket = aws_s3_bucket.eb_app_versions_frontend.id
   key    = "frontend-dockerrun.aws.json"
@@ -619,34 +318,28 @@ resource "aws_s3_object" "frontend_dockerrun_eb" { # Zmieniona nazwa
   })
 }
 
-resource "aws_elastic_beanstalk_application_version" "frontend_version_eb" { # Zmieniona nazwa
+resource "aws_elastic_beanstalk_application_version" "frontend_version_eb" {
   name        = "${var.app_name}-frontend-version-eb-${random_string.suffix.result}"
   application = aws_elastic_beanstalk_application.app_frontend_eb.name
   description = "Frontend version from Docker Hub"
   bucket      = aws_s3_bucket.eb_app_versions_frontend.id
-  key         = aws_s3_object.frontend_dockerrun_eb.key # Poprawiono na .key
+  key         = aws_s3_object.frontend_dockerrun_eb.key 
 }
 
-resource "aws_elastic_beanstalk_environment" "frontend_env_eb" { # Zmieniona nazwa
+resource "aws_elastic_beanstalk_environment" "frontend_env_eb" {
   name                = "${var.app_name}-frontend-env-eb"
   application         = aws_elastic_beanstalk_application.app_frontend_eb.name
-  solution_stack_name = "64bit Amazon Linux 2023 v4.5.0 running Docker" # Sprawdź najnowszą wspieraną wersję Docker na AL2
-                                                                      # Lub "64bit Amazon Linux 2023 v4.x.x running Docker" jeśli dostępna i preferowana
+  solution_stack_name = "64bit Amazon Linux 2023 v4.5.0 running Docker"
   version_label       = aws_elastic_beanstalk_application_version.frontend_version_eb.name
 
-  # Ustawienia środowiska dla frontendu
   setting {
     namespace = "aws:elasticbeanstalk:application:environment"
     name      = "VITE_API_URL"
-    # API Gateway będzie dostępne przez ALB na ścieżce /api
     value     = "http://${aws_lb.main_alb.dns_name}/api"
   }
   setting {
     namespace = "aws:autoscaling:launchconfiguration"
     name      = "IamInstanceProfile"
-    # W AWS Academy użyj "LabInstanceProfile"
-    # W standardowym AWS, powinieneś stworzyć profil instancji z odpowiednimi uprawnieniami
-    # np. dostęp do pobierania z Docker Hub, CloudWatch logs
     value     = "LabInstanceProfile"
   }
 }
