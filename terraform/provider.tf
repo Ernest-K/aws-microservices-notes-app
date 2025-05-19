@@ -1,3 +1,4 @@
+# Provider
 terraform {
   required_providers {
     aws = {
@@ -11,11 +12,12 @@ terraform {
   }
 }
 
+# Konfiguracja providera
 provider "aws" {
-  region              = var.aws_region
-  access_key          = var.aws_access_key_id != "" ? var.aws_access_key_id : null
-  secret_key          = var.aws_secret_access_key != "" ? var.aws_secret_access_key : null
-  token               = var.aws_session_token != "" ? var.aws_session_token : null
+  region     = var.aws_region
+  access_key = var.aws_access_key_id != "" ? var.aws_access_key_id : null
+  secret_key = var.aws_secret_access_key != "" ? var.aws_secret_access_key : null
+  token      = var.aws_session_token != "" ? var.aws_session_token : null
 }
 
 resource "random_string" "suffix" {
@@ -24,13 +26,16 @@ resource "random_string" "suffix" {
   upper   = false
 }
 
-data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
+# Pobranie informacji o istniejących zasobach
+data "aws_caller_identity" "current" {} # tożsamość 
+data "aws_region" "current" {}          # region
 
+# Pobranie domyślenego VPC (Virtual Private Cloud)
 data "aws_vpc" "default" {
   default = true
 }
 
+# Pobranie listy podsieci należących do VPC
 data "aws_subnets" "default" {
   filter {
     name   = "vpc-id"

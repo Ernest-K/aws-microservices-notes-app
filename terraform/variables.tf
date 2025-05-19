@@ -22,7 +22,7 @@ variable "db_password" {
 
 variable "sns_subscription_email" {
   description = "Email for sns topic subscription"
-  default = "264019@student.pwr.edu.pl"
+  default     = "264019@student.pwr.edu.pl"
 }
 
 variable "aws_access_key_id" {
