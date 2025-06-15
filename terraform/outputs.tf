@@ -1,39 +1,14 @@
-output "rds_database_endpoint" {
-  description = "Endpoint of the RDS database instance"
-  value       = aws_db_instance.app_db.endpoint
+output "frontend_url" {
+  description = "URL of the frontend application"
+  value       = module.frontend_app.beanstalk_environment_url
 }
 
-output "s3_files_bucket_name" {
-  description = "Name of the S3 bucket for file storage"
-  value       = aws_s3_bucket.app_files_bucket.bucket
+output "api_base_url" {
+  description = "Base URL for the API (via ALB)"
+  value       = "http://${module.load_balancer.alb_dns_name}/api"
 }
 
-output "cognito_user_pool_id" {
-  description = "ID of the Cognito User Pool"
-  value       = aws_cognito_user_pool.app_user_pool.id
-}
-
-output "cognito_user_pool_client_id" {
-  description = "Client ID of the Cognito User Pool Client"
-  value       = aws_cognito_user_pool_client.app_client.id
-}
-
-output "notifications_sns_topic_arn" {
-  description = "ARN of the SNS topic for notifications"
-  value       = aws_sns_topic.notifications_topic.arn
-}
-
-output "frontend_eb_url" {
-  description = "URL of the frontend application (Elastic Beanstalk)"
-  value       = "http://${aws_elastic_beanstalk_environment.frontend_env_eb.cname}"
-}
-
-output "api_gateway_url" {
-  description = "URL of the API Gateway"
-  value       = "http://${aws_lb.main_alb.dns_name}/api"
-}
-
-output "rds_database" {
-  value = "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.app_db.address}:${aws_db_instance.app_db.port}/${aws_db_instance.app_db.db_name}"
-  sensitive = true
+output "rds_endpoint" {
+  description = "Endpoint for the RDS database"
+  value       = module.rds_db.db_instance_endpoint
 }
