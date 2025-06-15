@@ -198,16 +198,49 @@ app.use(
 
 // Ścieżki /notes/* i /files/* ZAWSZE wymagają autoryzacji
 app.use(
-  "/api/notes",
+  "/api/notes", // Przechwytuje wszystko, co zaczyna się od /api/notes
   authenticateAndAttachUser,
   createProxyMiddleware({
-    // Dodano middleware
     ...commonProxyOptions,
-    pathRewrite: {
-      [`^/api/notes`]: "",
+    target: process.env.NOTES_SERVICE_URL, // np. https://nzwmedq8u5.execute-api.us-east-1.amazonaws.com
+    pathRewrite: (path, req) => {
+      // `path` to część URL *po* dopasowanym "/api/notes"
+      // Dla żądania na "localhost:3000/api/notes", `path` będzie "/" (lub pusty string, zależnie od konfiguracji proxy)
+      // Dla żądania na "localhost:3000/api/notes/123", `path` będzie "/123"
+
+      let newTargetPath;
+      if (path === "/" || path === "") {
+        // Jeśli oryginalne żądanie było na /api/notes (lub /api/notes/)
+        newTargetPath = "/notes"; // Chcemy trafić na /notes w Lambda API Gateway
+      } else {
+        // Jeśli oryginalne żądanie było na /api/notes/jakiś-id
+        // `path` będzie "/jakiś-id"
+        newTargetPath = "/notes" + path; // Tworzymy "/notes/jakiś-id"
+      }
+
+      console.log(`[Fargate GW] pathRewrite: Input path from middleware: "${path}"`);
+      console.log(`[Fargate GW] pathRewrite: Original request URL: "${req.originalUrl}"`);
+      console.log(`[Fargate GW] pathRewrite: Calculated new target path: "${newTargetPath}"`);
+      return newTargetPath;
     },
-    target: NOTES_SERVICE_URL,
-    pathRewrite: { "^/notes": "" },
+    // ... (reszta konfiguracji proxy, w tym on.proxyReq i logLevel)
+    on: {
+      ...commonProxyOptions.on,
+      proxyReq: (proxyReq, req, res) => {
+        if (req.headers["x-user-id"]) {
+          proxyReq.setHeader("x-user-id", req.headers["x-user-id"]);
+        }
+        if (req.headers["x-user-email"]) {
+          proxyReq.setHeader("x-user-email", req.headers["x-user-email"]);
+        }
+        console.log(
+          `[Gateway Proxy] Proxying to target host: ${proxyReq.host}, path: ${proxyReq.path}, method: ${proxyReq.method}, User ID: ${
+            req.headers["x-user-id"] || "N/A"
+          }`
+        );
+      },
+    },
+    logLevel: "debug",
   })
 );
 

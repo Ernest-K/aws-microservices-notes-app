@@ -52,7 +52,7 @@ variable "frontend_image_uri" {
 
 variable "api_gateway_image_uri" {
   description = "Docker image URI for the API Gateway service"
-  default     = "264019/microservies-notes-app-api-gateway-v3:latest"
+  default     = "264019/microservies-notes-app-api-gateway-v4:latest"
 }
 
 variable "auth_service_image_uri" {
@@ -72,5 +72,19 @@ variable "files_service_image_uri" {
 
 variable "notifications_service_image_uri" {
   description = "Docker image URI for the Notifications service"
-  default     = "264019/microservies-notes-app-notifications-service-v2:latest"
+  default     = "264019/microservies-notes-app-notifications-service-v3:latest"
+}
+
+variable "lambda_api_gateway_invoke_url" {
+  description = "The Invoke URL of the manually created API Gateway for Notes Lambdas (e.g., https://xxxx.execute-api.region.amazonaws.com)"
+  type        = string
+  # Nie podawaj default, użytkownik powinien to jawnie ustawić w pliku .tfvars lub przy wywołaniu
+  default     = "https://nzwmedq8u5.execute-api.us-east-1.amazonaws.com"
+}
+
+variable "sqs_notifications_queue_url" {
+  description = "The URL of the manually created SQS queue for notifications"
+  type        = string
+  # Nie podawaj default
+  default     = "https://sqs.us-east-1.amazonaws.com/112325731075/notes-app-notifications-queue"
 }

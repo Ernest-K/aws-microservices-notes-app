@@ -1,0 +1,11 @@
+{
+  "name": "get-note-lambda",
+  "version": "1.0.0",
+  "description": "Lambda function to get a single note by ID",
+  "main": "index.js",
+  "dependencies": {
+    "sequelize": "^6.37.3",
+    "pg": "^8.11.3",
+    "pg-hstore": "^2.3.4"
+  }
+}

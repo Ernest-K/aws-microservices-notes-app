@@ -1,0 +1,12 @@
+{
+  "name": "delete-note-lambda",
+  "version": "1.0.0",
+  "description": "Lambda function to delete a note",
+  "main": "index.js",
+  "dependencies": {
+    "sequelize": "^6.37.3",
+    "pg": "^8.11.3",
+    "pg-hstore": "^2.3.4",
+    "@aws-sdk/client-sqs": "^3.500.0"
+  }
+}

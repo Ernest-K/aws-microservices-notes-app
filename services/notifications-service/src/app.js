@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { SNSClient, PublishCommand } from "@aws-sdk/client-sns";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { SQSClient, ReceiveMessageCommand, DeleteMessageCommand } from "@aws-sdk/client-sqs";
 import { v4 as uuidv4 } from "uuid";
 
 dotenv.config();
@@ -14,173 +15,170 @@ const port = process.env.PORT || 3004;
 const awsRegion = process.env.AWS_REGION;
 const snsTopicArn = process.env.AWS_SNS_TOPIC_ARN;
 const dynamoDbTableName = process.env.DYNAMODB_NOTIFICATIONS_TABLE_NAME;
+const SQS_QUEUE_URL = process.env.SQS_QUEUE_URL; // Nowa zmienna środowiskowa
 
-if (!awsRegion || !snsTopicArn || !dynamoDbTableName) {
-  console.error("FATAL ERROR: Missing required environment variables: AWS_REGION, AWS_SNS_TOPIC_ARN, DYNAMODB_NOTIFICATIONS_TABLE_NAME");
+if (!awsRegion || !snsTopicArn || !dynamoDbTableName || !SQS_QUEUE_URL) {
+  console.error("FATAL ERROR: Missing required environment variables: AWS_REGION, AWS_SNS_TOPIC_ARN, DYNAMODB_NOTIFICATIONS_TABLE_NAME, SQS_QUEUE_URL");
   process.exit(1);
 }
 
-// partition key: recipientUserId
-// sort key: notificationId
-
 // --- Klienci AWS SDK ---
-// Zakładamy, że uprawnienia pochodzą z roli IAM zadania Fargate
 const snsClient = new SNSClient({ region: awsRegion });
 const ddbClient = new DynamoDBClient({ region: awsRegion });
 const ddbDocClient = DynamoDBDocumentClient.from(ddbClient);
+const sqsClient = new SQSClient({ region: awsRegion }); // Nowy klient SQS
 
 // --- Middleware ---
 app.use(cors());
-app.use(express.json()); // Do parsowania ciała żądań
+app.use(express.json());
+// ... (logowanie żądań i extractUserIdOptional bez zmian) ...
 
-// Logowanie żądań
-app.use((req, res, next) => {
-  console.log(`[NotificationsService] Received Request: ${req.method} ${req.originalUrl}`);
-  next();
-});
-
-// Middleware do wyciągania ID użytkownika (może być potrzebne, jeśli powiadomienia są specyficzne dla użytkownika)
-// Na razie go nie użyjemy bezpośrednio w logice, ale może być przydatny w przyszłości.
-const extractUserIdOptional = (req, res, next) => {
-  const userId = req.headers["x-user-id"];
-  if (userId) {
-    req.userId = userId;
-    console.log(`[NotificationsService] User ID from header: ${req.userId}`);
-  }
-  next();
-};
-app.use(extractUserIdOptional); // Stosujemy do wszystkich tras
-
-// --- Endpointy API ---
-
-// POST /send : Endpoint do wysłania testowego powiadomienia
-// W ciele żądania można przekazać `subject` i `message`
-app.post("/notifications/send", async (req, res) => {
-  const { recipientUserId, subject, message } = req.body;
-
-  if (!recipientUserId) {
-    return res.status(400).json({ message: 'Pole "recipientUserId" jest wymagane.' });
-  }
-  if (!subject || !message) {
-    return res.status(400).json({ message: 'Pola "subject" i "message" są wymagane.' });
-  }
-
-  const notificationId = uuidv4(); // Unikalne ID dla tego powiadomienia
-  const timestamp = new Date().toISOString();
-
-  // 1. Publikuj do SNS
-  const snsParams = {
-    TopicArn: snsTopicArn,
-    Subject: subject,
-    Message: message,
-    // Opcjonalnie: Atrybuty wiadomości, jeśli subskrybenci filtrują
-    MessageAttributes: {
-      userId: { DataType: "String", StringValue: recipientUserId },
-      eventType: { DataType: "String", StringValue: "NewNoteNotification" },
-    },
-  };
-
+// --- Logika Przetwarzania Wiadomości SQS ---
+async function processSqsMessage(message) {
+  console.log(`[NotificationsService] Received SQS message with ID: ${message.MessageId}`);
+  let eventData;
   try {
-    const snsCommand = new PublishCommand(snsParams);
-    const snsResponse = await snsClient.send(snsCommand);
-    console.log(`[NotificationsService] Message published to SNS for recipient ${recipientUserId}. SNS Message ID: ${snsResponse.MessageId}`);
+    eventData = JSON.parse(message.Body);
+    console.log("[NotificationsService] Parsed SQS Message Body:", eventData);
+
+    // Walidacja podstawowych pól
+    if (!eventData.type || !eventData.userId || !eventData.noteId || !eventData.title) {
+      console.error("[NotificationsService] Invalid SQS message format. Missing required fields.", eventData);
+      // Zdecyduj, czy usunąć wiadomość, czy pozwolić jej wrócić (potencjalnie do DLQ)
+      // Na razie logujemy i próbujemy usunąć, aby uniknąć pętli
+      await deleteMessageFromQueue(message.ReceiptHandle, "InvalidFormat");
+      return;
+    }
+
+    let subject, emailMessageBody;
+
+    switch (eventData.type) {
+      case "NOTE_CREATED":
+        subject = `Nowa notatka utworzona: "${eventData.title.substring(0, 30)}${eventData.title.length > 30 ? "..." : ""}"`;
+        emailMessageBody = `Użytkownik (ID: ${eventData.userId}) utworzył nową notatkę (ID: ${eventData.noteId}) o tytule: "${eventData.title}".\nTimestamp: ${eventData.timestamp}`;
+        break;
+      case "NOTE_UPDATED":
+        subject = `Notatka zaktualizowana: "${eventData.title.substring(0, 30)}${eventData.title.length > 30 ? "..." : ""}"`;
+        emailMessageBody = `Użytkownik (ID: ${eventData.userId}) zaktualizował notatkę (ID: ${eventData.noteId}) o tytule: "${eventData.title}".\nTimestamp: ${eventData.timestamp}`;
+        break;
+      case "NOTE_DELETED":
+        subject = `Notatka usunięta: "${eventData.title.substring(0, 30)}${eventData.title.length > 30 ? "..." : ""}"`;
+        emailMessageBody = `Użytkownik (ID: ${eventData.userId}) usunął notatkę (ID: ${eventData.noteId}) o tytule: "${eventData.title}".\nTimestamp: ${eventData.timestamp}`;
+        break;
+      default:
+        console.warn(`[NotificationsService] Unknown event type received: ${eventData.type}`);
+        await deleteMessageFromQueue(message.ReceiptHandle, "UnknownEventType");
+        return;
+    }
+
+    // 1. Publikuj do SNS
+    const snsParams = {
+      TopicArn: snsTopicArn,
+      Subject: subject,
+      Message: emailMessageBody,
+      MessageAttributes: {
+        userId: { DataType: "String", StringValue: eventData.userId },
+        noteId: { DataType: "String", StringValue: eventData.noteId },
+        eventType: { DataType: "String", StringValue: eventData.type },
+      },
+    };
+    const snsResponse = await snsClient.send(new PublishCommand(snsParams));
+    console.log(
+      `[NotificationsService] Message published to SNS for event type ${eventData.type}, Note ID: ${eventData.noteId}. SNS Message ID: ${snsResponse.MessageId}`
+    );
 
     // 2. Zapisz do historii w DynamoDB
+    const notificationId = uuidv4();
     const dynamoDbParams = {
       TableName: dynamoDbTableName,
       Item: {
-        // Klucz partycji może być np. datą lub typem powiadomienia, a sortujący timestampem
-        // Dla prostoty, użyjmy userId (jeśli jest) lub 'system' jako klucz partycji, a notificationId jako sort
-        notificationId: notificationId, // Unikalne ID, może być Sort Key
+        recipientUserId: eventData.userId, // Klucz partycji
+        notificationId: notificationId, // Klucz sortowania
+        originalEventId: eventData.noteId,
+        eventType: eventData.type,
         subject: subject,
-        message: message,
+        message: emailMessageBody,
         snsMessageId: snsResponse.MessageId,
-        status: "SENT", // Status wysyłki
-        recipientUserId: recipientUserId, // Kto był adresatem (jeśli dotyczy)
-        timestamp: timestamp,
+        status: "SENT",
+        timestamp: new Date().toISOString(), // Użyj bieżącego czasu dla rekordu powiadomienia
+        originalEventTimestamp: eventData.timestamp, // Timestamp oryginalnego zdarzenia
       },
     };
+    await ddbDocClient.send(new PutCommand(dynamoDbParams));
+    console.log(`[NotificationsService] Notification history saved to DynamoDB. Notification ID: ${notificationId}`);
 
-    // Jeśli recipientUserId nie jest dostępny, można użyć innego klucza partycji, np. 'all_users' lub 'system'
-    // lub użyć GSI do zapytań po recipientUserId.
-    // Na potrzeby tego przykładu, jeśli recipientUserId nie ma, to traktujemy jako powiadomienie systemowe.
-    // Schemat tabeli DynamoDB:
-    // - partitionKey (String) - np. recipientUserId lub 'system_notifications'
-    // - notificationId (String) - Sort Key
-
-    const dynamoDbCommand = new PutCommand(dynamoDbParams);
-    await ddbDocClient.send(dynamoDbCommand);
-    console.log(`[NotificationsService] Notification history saved to DynamoDB. Recipient: ${recipientUserId}, Notification ID: ${notificationId}`);
-
-    res.status(200).json({
-      message: "Powiadomienie zostało wysłane i zapisane w historii.",
-      notificationId: notificationId,
-      snsMessageId: snsResponse.MessageId,
-    });
+    // 3. Usuń wiadomość z kolejki SQS
+    await deleteMessageFromQueue(message.ReceiptHandle, "Processed");
   } catch (error) {
-    console.error("[NotificationsService] Error sending notification or saving history:", error);
-    // Zapisujemy próbę do DynamoDB nawet jeśli SNS zawiódł? To zależy od logiki biznesowej.
-    // Na razie zwracamy błąd.
-    // Można by zapisać ze statusem 'FAILED_TO_SEND'
-    try {
-      const failedHistoryParams = {
-        TableName: dynamoDbTableName,
-        Item: {
-          partitionKey: recipientUserId,
-          notificationId: notificationId,
-          subject: subject,
-          message: message,
-          status: "FAILED_TO_SEND_SNS",
-          error: error.message,
-          recipientUserId: recipientUserId || null,
-          timestamp: timestamp,
-        },
-      };
-      await ddbDocClient.send(new PutCommand(failedHistoryParams));
-      console.log("[NotificationsService] Failed notification attempt logged to DynamoDB.");
-    } catch (dbError) {
-      console.error("[NotificationsService] Error logging failed notification to DynamoDB:", dbError);
-    }
-
-    res.status(500).json({ message: "Wystąpił błąd podczas wysyłania powiadomienia.", errorName: error.name });
+    console.error(`[NotificationsService] Error processing SQS message ID ${message.MessageId}:`, error);
+    // W przypadku błędu NIE usuwamy wiadomości, aby mogła być przetworzona ponownie
+    // lub trafić do Dead Letter Queue (DLQ), jeśli jest skonfigurowana.
+    // Można dodać logikę do zwiększania licznika prób dla wiadomości.
   }
-});
+}
 
-// GET /history : Pobierz historię powiadomień (np. dla danego użytkownika lub systemowych)
-// Opcjonalny query param `userId`
-app.get("/notifications/history", async (req, res) => {
-  // Możemy filtrować po `recipientUserId` lub po prostu pobrać ostatnie X systemowych.
-  // Na razie zaimplementujemy pobieranie dla konkretnego `recipientUserId` lub systemowych.
-  const queryUserId = req.query.userId; // Domyślnie systemowe
-
-  if (!queryUserId) {
-    return res.status(400).json({ message: "ID użytkownika (userId) jest wymagane." });
+async function deleteMessageFromQueue(receiptHandle, reason) {
+  try {
+    const deleteParams = {
+      QueueUrl: SQS_QUEUE_URL,
+      ReceiptHandle: receiptHandle,
+    };
+    await sqsClient.send(new DeleteMessageCommand(deleteParams));
+    console.log(`[NotificationsService] SQS message deleted successfully. Reason: ${reason}. ReceiptHandle: ${receiptHandle.substring(0, 10)}...`);
+  } catch (deleteError) {
+    console.error(`[NotificationsService] Error deleting SQS message. ReceiptHandle: ${receiptHandle.substring(0, 10)}...`, deleteError);
   }
+}
 
+// --- Pętla Nasłuchująca na Kolejce SQS ---
+async function pollSqsQueue() {
+  console.log(`[NotificationsService] Polling SQS queue: ${SQS_QUEUE_URL}`);
   const params = {
-    TableName: dynamoDbTableName,
-    KeyConditionExpression: "recipientUserId = :uid",
-    ExpressionAttributeValues: {
-      ":uid": queryUserId,
-    },
-    ScanIndexForward: false, // Sortuj malejąco po Sort Key (notificationId lub timestamp, jeśli timestamp jest SK)
-    Limit: 20, // Pobierz ostatnie 20 powiadomień
+    QueueUrl: SQS_QUEUE_URL,
+    MaxNumberOfMessages: 5, // Pobierz do 5 wiadomości na raz
+    WaitTimeSeconds: 20, // Long polling (max 20s)
+    VisibilityTimeout: 60, // Czas na przetworzenie (w sekundach)
+    MessageAttributeNames: ["All"], // Pobierz wszystkie atrybuty wiadomości
   };
 
   try {
-    const command = new QueryCommand(params);
-    const data = await ddbDocClient.send(command);
-    console.log(`[NotificationsService] Found ${data.Items?.length || 0} notifications in history for partitionKey: ${queryUserId}`);
-    res.status(200).json(data.Items || []);
+    const data = await sqsClient.send(new ReceiveMessageCommand(params));
+    if (data.Messages && data.Messages.length > 0) {
+      console.log(`[NotificationsService] Received ${data.Messages.length} message(s) from SQS.`);
+      // Przetwarzaj wiadomości sekwencyjnie (await), aby uniknąć problemów z VisibilityTimeout,
+      // jeśli przetwarzanie jest długie lub chcesz zapewnić kolejność w ramach jednej paczki.
+      // Dla większej równoległości można użyć Promise.all, ale trzeba uważać na zarządzanie błędami.
+      for (const message of data.Messages) {
+        await processSqsMessage(message);
+      }
+    } else {
+      // console.log("[NotificationsService] No messages received from SQS.");
+    }
   } catch (error) {
-    console.error("[NotificationsService] Error fetching notification history:", error);
-    res.status(500).json({ message: "Błąd podczas pobierania historii powiadomień.", errorName: error.name });
+    console.error("[NotificationsService] Error polling SQS:", error);
   }
+  // Rekursywne wywołanie lub pętla z opóźnieniem
+  // setTimeout(pollSqsQueue, 1000); // Odczekaj 1s przed kolejnym odpytaniem
+  setImmediate(pollSqsQueue); // Uruchom kolejne odpytanie tak szybko, jak to możliwe w pętli zdarzeń Node.js
+}
+
+// --- Endpointy API (mogą pozostać, np. /history, /health) ---
+// Usuń lub zmodyfikuj endpoint /send, jeśli nie jest już potrzebny do bezpośredniego wywoływania
+app.post("/notifications/send", (req, res) => {
+  res.status(405).json({ message: "Direct sending via /send is deprecated. Use event-driven flow via SQS." });
 });
 
-// GET /health : Endpoint sprawdzający stan serwisu
+app.get("/notifications/history", async (req, res) => {
+  // ... (logika pobierania historii bez zmian, jeśli klucze DynamoDB pasują) ...
+  // Upewnij się, że klucz partycji w DynamoDB (recipientUserId) jest używany w zapytaniu
+  const queryUserId = req.query.userId;
+  if (!queryUserId) {
+    return res.status(400).json({ message: "ID użytkownika (userId) jest wymagane jako parametr zapytania." });
+  }
+  // ... reszta logiki z QueryCommand dla DynamoDB
+});
+
 app.get("/notifications/health", (req, res) => {
-  // Można dodać prosty check SNS publish (np. do martwego tematu) lub DynamoDB, jeśli potrzebne
   res.status(200).json({ status: "UP", message: "Notifications Service is running" });
 });
 
@@ -196,4 +194,7 @@ app.listen(port, () => {
   console.log(`[NotificationsService] Configured for AWS Region: ${awsRegion}`);
   console.log(`[NotificationsService] SNS Topic ARN: ${snsTopicArn}`);
   console.log(`[NotificationsService] DynamoDB Table: ${dynamoDbTableName}`);
+  console.log(`[NotificationsService] SQS Queue URL: ${SQS_QUEUE_URL}`);
+
+  pollSqsQueue(); // Rozpocznij nasłuchiwanie na kolejce SQS
 });

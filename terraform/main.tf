@@ -93,7 +93,7 @@ locals {
         { name = "PORT", value = "80" },
         { name = "AWS_REGION", value = var.aws_region },
         { name = "AUTH_SERVICE_URL", value = "http://${aws_lb.main_alb.dns_name}/auth" },
-        { name = "NOTES_SERVICE_URL", value = "http://${aws_lb.main_alb.dns_name}/notes" },
+        { name = "NOTES_SERVICE_URL", value = var.lambda_api_gateway_invoke_url },
         { name = "FILES_SERVICE_URL", value = "http://${aws_lb.main_alb.dns_name}/files" },
         { name = "NOTIFICATIONS_SERVICE_URL", value = "http://${aws_lb.main_alb.dns_name}/notifications" },
         { name = "AWS_ACCESS_KEY_ID", value = var.aws_access_key_id },
@@ -116,21 +116,6 @@ locals {
         { name = "AWS_ACCESS_KEY_ID", value = var.aws_access_key_id },
         { name = "AWS_SECRET_ACCESS_KEY", value = var.aws_secret_access_key },
         { name = "AWS_SESSION_TOKEN", value = var.aws_session_token },
-      ]
-    },
-    notes-service = {
-      port             = 80
-      image_uri        = var.notes_service_image_uri
-      tg_port          = 80
-      alb_path         = "/notes/*"
-      alb_priority     = 40
-      cpu              = 256
-      memory           = 512
-      environment_vars = [
-        { name = "PORT", value = "80" },
-        { name = "DB_URL", value = "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.app_db.address}:${aws_db_instance.app_db.port}/${aws_db_instance.app_db.db_name}" },
-        { name = "AWS_REGION", value = var.aws_region },
-        { name = "NOTIFICATIONS_SERVICE_URL", value = "http://${aws_lb.main_alb.dns_name}/notifications" }
       ]
     },
     files-service = {
@@ -167,6 +152,7 @@ locals {
         { name = "AWS_ACCESS_KEY_ID", value = var.aws_access_key_id },
         { name = "AWS_SECRET_ACCESS_KEY", value = var.aws_secret_access_key },
         { name = "AWS_SESSION_TOKEN", value = var.aws_session_token },
+        { name = "SQS_QUEUE_URL", value = var.sqs_notifications_queue_url }
       ]
     }
   }

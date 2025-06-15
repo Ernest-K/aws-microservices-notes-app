@@ -32,3 +32,8 @@ output "api_gateway_url" {
   description = "URL of the API Gateway"
   value       = "http://${aws_lb.main_alb.dns_name}/api"
 }
+
+output "rds_database" {
+  value = "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.app_db.address}:${aws_db_instance.app_db.port}/${aws_db_instance.app_db.db_name}"
+  sensitive = true
+}
