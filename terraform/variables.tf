@@ -15,7 +15,6 @@ variable "db_username" {
 
 variable "db_password" {
   description = "Password for RDS database"
-  sensitive   = true
 
   default = "YourStrongPassword123"
 }
@@ -79,12 +78,12 @@ variable "lambda_api_gateway_invoke_url" {
   description = "The Invoke URL of the manually created API Gateway for Notes Lambdas (e.g., https://xxxx.execute-api.region.amazonaws.com)"
   type        = string
   # Nie podawaj default, użytkownik powinien to jawnie ustawić w pliku .tfvars lub przy wywołaniu
-  default     = "https://nzwmedq8u5.execute-api.us-east-1.amazonaws.com"
+  default = "https://nzwmedq8u5.execute-api.us-east-1.amazonaws.com"
 }
 
 variable "sqs_notifications_queue_url" {
   description = "The URL of the manually created SQS queue for notifications"
   type        = string
   # Nie podawaj default
-  default     = "https://sqs.us-east-1.amazonaws.com/112325731075/notes-app-notifications-queue"
+  default = "https://sqs.us-east-1.amazonaws.com/112325731075/notes-app-notifications-queue"
 }
